@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,6 +33,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MAX_COUNTER_PERIOD	65535
+#define AVG_SLOPE			(4.3F)
+#define V_AT_25C			(1.43F)
+#define V_REF_INT			(1.2F)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,6 +44,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
@@ -54,15 +60,17 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t tx_buffer[] = {0,1,2,3,4,5,6,7,8,9};
+uint16_t adcValue = 0;
+uint8_t updateEvent = 0;
+float temperatureValue, VRefint;
 /* USER CODE END 0 */
 
 /**
@@ -89,18 +97,23 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  uint32_t duty_cycle = 0;
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
+  MX_ADC1_Init();
   MX_TIM3_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  // Start Timers
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_TIM_Base_Start(&htim3);
+  // Calibrate ADCs
+  HAL_ADCEx_Calibration_Start(&hadc1);
+  // Start ADCs
+  HAL_ADC_Start_IT(&hadc1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -110,17 +123,32 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	uint32_t duty_cycle = 0;
+
+	if(updateEvent)
+	{
+		// Calcul of the temperature
+		VRefint 			= (float)(adcValue * 3.3) / 4095;
+		temperatureValue 	= (float)((V_AT_25C - VRefint) / AVG_SLOPE) +25;
+
+		// Sending temperature value to an Arduino UNO board with UART Serial Communication
+		char msg[100];
+		sprintf(msg, "Internal temperature is %d\r\n", (int)temperatureValue);
+		HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 1000);
+		// Reset the ADC flag
+		updateEvent = 0;
+	}
+
+	//While loops to control PWM signal for the LED
 	while (duty_cycle < MAX_COUNTER_PERIOD)
 	{
 		TIM2->CCR1 = duty_cycle;
 		duty_cycle += 350;
-		HAL_Delay(2);
 	}
 	while (duty_cycle > 0)
 	{
 		TIM2->CCR1 = duty_cycle;
 		duty_cycle -= 350;
-		HAL_Delay(2);
 	}
   }
   /* USER CODE END 3 */
@@ -134,6 +162,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -163,6 +192,60 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+  // Activate internal temperature sensor and internal reference
+  ADC1->CR2 |= ADC_CR2_TSVREFE;
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T3_TRGO;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_TEMPSENSOR;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -257,7 +340,7 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
@@ -335,13 +418,14 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-	if(htim->Instance == TIM3)
-	{
-		HAL_UART_Transmit(&huart1, tx_buffer, 10, 1000);
-		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-	}
+  if (hadc->Instance == ADC1)
+  {
+	  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+	  adcValue = HAL_ADC_GetValue(hadc);
+	  updateEvent = 1;
+  }
 }
 /* USER CODE END 4 */
 
