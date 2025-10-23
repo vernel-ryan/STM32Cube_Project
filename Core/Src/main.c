@@ -90,7 +90,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+	uint32_t duty_cycle = 0;
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -123,32 +123,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	uint32_t duty_cycle = 0;
-
-	if(updateEvent)
-	{
-		// Calcul of the temperature
-		VRefint 			= (float)(adcValue * 3.3) / 4095;
-		temperatureValue 	= (float)((V_AT_25C - VRefint) / AVG_SLOPE) +25;
-
-		// Sending temperature value to an Arduino UNO board with UART Serial Communication
-		char msg[100];
-		sprintf(msg, "Internal temperature is %d\r\n", (int)temperatureValue);
-		HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 1000);
-		// Reset the ADC flag
-		updateEvent = 0;
-	}
 
 	//While loops to control PWM signal for the LED
 	while (duty_cycle < MAX_COUNTER_PERIOD)
 	{
 		TIM2->CCR1 = duty_cycle;
 		duty_cycle += 350;
+		HAL_Delay(2);
 	}
 	while (duty_cycle > 0)
 	{
 		TIM2->CCR1 = duty_cycle;
 		duty_cycle -= 350;
+		HAL_Delay(2);
 	}
   }
   /* USER CODE END 3 */
@@ -326,9 +313,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 720-1;
+  htim3.Init.Prescaler = 200-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 10000-1;
+  htim3.Init.Period = 7200-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -420,12 +407,20 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-  if (hadc->Instance == ADC1)
-  {
-	  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-	  adcValue = HAL_ADC_GetValue(hadc);
-	  updateEvent = 1;
-  }
+	if (hadc->Instance == ADC1)
+	{
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		adcValue = HAL_ADC_GetValue(hadc);
+
+		// Calcul of the temperature
+		VRefint 			= (float)(adcValue * 3.3) / 4095;
+		temperatureValue 	= (float)((V_AT_25C - VRefint) / AVG_SLOPE) +25;
+
+		// Sending temperature value to an Arduino UNO board with UART Serial Communication
+		char msg[100];
+		sprintf(msg, "Internal temperature is %d\r\n", (int)temperatureValue);
+		HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 1000);
+	}
 }
 /* USER CODE END 4 */
 
