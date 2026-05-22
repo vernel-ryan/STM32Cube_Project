@@ -16,7 +16,8 @@ The goal of this STM32 project is to learn/show how embedded systems work and ad
 
 ## My Work 
 
-Here is the different parts of my work on this project.
+For each section of the project, I started by learning why using the functionnality and how. Then, I programmed in low level with the µController registers. This way, I verify my understanding of the functionality and the capacity to read the datasheet of the µController. After, I transformed this code with the HAL library to understand how this library works.
+
 ### PWM Functionnality 
 
 I initialized the TIM2 timer in PWM mode to generate a PWM signal on a LED output pin to modifiy its intensity.
